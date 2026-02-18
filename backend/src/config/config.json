@@ -1,0 +1,37 @@
+{
+  "models": [
+    {
+      "id": "680d8622-6886-4886-abf5-a64783f19527",
+      "isDefault": true,
+      "name": "deepseekv3",
+      "provider": "openai_compatible",
+      "baseURL": "https://api.deepseek.com/v1",
+      "model": "deepseek-chat",
+      "apiKey": "sk-8c68bac904df4345988ae5bdb015df94"
+    }
+  ],
+  "channels": [
+    {
+      "id": "da8cf284-d46c-41a8-81af-35803032d9ac",
+      "type": "qq",
+      "name": "willknow",
+      "config": {
+        "appId": "102857487",
+        "appSecret": "8d9fCjHqPzZAlNzcFtXCrXDubJ1kTDyj"
+      },
+      "enabled": true
+    }
+  ],
+  "skills": [],
+  "subAgents": [
+    {
+      "id": "1c26f930-cc2b-4987-9ed4-78ee49ec9974",
+      "url": "http://localhost:8888",
+      "name": "Task Management API",
+      "auth": {
+        "type": "none"
+      },
+      "enabled": true
+    }
+  ]
+}
