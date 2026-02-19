@@ -8,6 +8,9 @@ services:
     volumes:
       # 只挂载配置文件，避免覆盖整个 config 目录（index.js 等源码需保留）
       - ./data/config.json:/app/src/config/config.json
+    extra_hosts:
+      # 允许容器内用 host.docker.internal 访问宿主机（Linux 需要此配置，macOS/Windows 自动支持）
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   frontend:

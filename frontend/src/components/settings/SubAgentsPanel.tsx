@@ -139,7 +139,7 @@ export default function SubAgentsPanel({ subAgents, onChange }: Props) {
         width={520}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item label="SubAgent URL" style={{ marginBottom: 8 }}>
+          <Form.Item label="SubAgent URL" style={{ marginBottom: 4 }}>
             <Space.Compact style={{ width: '100%' }}>
               <Form.Item name="url" noStyle rules={[{ required: true }]}>
                 <Input placeholder="http://localhost:8888" />
@@ -155,6 +155,13 @@ export default function SubAgentsPanel({ subAgents, onChange }: Props) {
               </Tooltip>
             </Space.Compact>
           </Form.Item>
+          <div style={{ marginBottom: 12, fontSize: 12, color: '#8c8c8c' }}>
+            Docker 部署时宿主机服务请用{' '}
+            <Text code style={{ fontSize: 11 }}>host.docker.internal</Text>
+            {' '}代替{' '}
+            <Text code style={{ fontSize: 11 }}>localhost</Text>
+            ，如：<Text code style={{ fontSize: 11 }}>http://host.docker.internal:8888</Text>
+          </div>
 
           {probeResult && (
             <div style={{ marginBottom: 12, padding: '8px 12px', background: probeResult.ok ? '#f6ffed' : '#fff2f0', borderRadius: 6, border: `1px solid ${probeResult.ok ? '#b7eb8f' : '#ffccc7'}` }}>
