@@ -3,21 +3,76 @@ import { callSubAgent } from './subagent.js'
 
 const MAX_TURNS = 10
 
+// ─── Skills: read_skill tool (progressive disclosure) ────────────────────────
+
+const READ_SKILL_TOOL = {
+  name: 'read_skill',
+  description: "Read the full instructions for an available skill. Call this when you determine a user task matches a skill's description.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      skill_name: {
+        type: 'string',
+        description: 'The name of the skill to read (must match a name in <available_skills>)',
+      },
+    },
+    required: ['skill_name'],
+  },
+}
+
+function xmlEscape(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
 /**
- * 主 LLM 调用服务，支持 SSE 流式输出 + SubAgent tool calling 循环
- *
- * @param {object} model         - 模型配置 { provider, apiKey, baseURL, model }
- * @param {Array}  messages      - 对话历史 [{ role, content }]
- * @param {Array}  subAgentTools - [{ subAgentId, subAgentUrl, subAgentAuth, tool }]
- * @param {object} subAgentSessions - { subAgentId: sessionId }
- * @param {Function} onEvent    - SSE 事件回调 (type, data)
+ * Build system prompt with skill metadata only (progressive disclosure step 1).
+ * Returns null if no skills are enabled.
  */
-export async function runChat(model, messages, subAgentTools, subAgentSessions, onEvent) {
+function buildSystemPrompt(skills) {
+  if (!skills || skills.length === 0) return null
+  const items = skills.map(s =>
+    `  <skill>\n    <name>${xmlEscape(s.name)}</name>\n    <description>${xmlEscape(s.description)}</description>\n  </skill>`
+  ).join('\n')
+  return [
+    'You have access to the following skills that extend your capabilities.',
+    "When a user task matches a skill's description, use the read_skill tool to load the full instructions before proceeding.",
+    '',
+    '<available_skills>',
+    items,
+    '</available_skills>',
+  ].join('\n')
+}
+
+// ─── Main chat loop ───────────────────────────────────────────────────────────
+
+/**
+ * 主 LLM 调用服务，支持 SSE 流式输出 + SubAgent tool calling + Skills (progressive disclosure)
+ *
+ * @param {object}   model            - 模型配置 { provider, apiKey, baseURL, model }
+ * @param {Array}    messages         - 对话历史 [{ role, content }]
+ * @param {Array}    subAgentTools    - [{ subAgentId, subAgentUrl, subAgentAuth, tool }]
+ * @param {object}   subAgentSessions - { subAgentId: sessionId }
+ * @param {Function} onEvent         - SSE 事件回调 (type, data)
+ * @param {Array}    skills           - SkillConfig[] from config
+ */
+export async function runChat(model, messages, subAgentTools, subAgentSessions, onEvent, skills = []) {
   const history = [...messages]
-  const tools = subAgentTools.map(e => e.tool)
+  const enabledSkills = skills.filter(s => s.enabled)
+
+  // Tools: subAgent tools + read_skill (if any skills enabled)
+  const tools = [
+    ...subAgentTools.map(e => e.tool),
+    ...(enabledSkills.length > 0 ? [READ_SKILL_TOOL] : []),
+  ]
+
+  // System prompt: inject skill metadata only (progressive disclosure step 1)
+  const systemPrompt = buildSystemPrompt(enabledSkills)
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await callLLM(model, history, tools, onEvent)
+    const response = await callLLM(model, history, tools, onEvent, systemPrompt)
 
     // 将 assistant 消息追加到历史
     history.push({ role: 'assistant', content: response.content })
@@ -29,6 +84,18 @@ export async function runChat(model, messages, subAgentTools, subAgentSessions, 
     // 执行每个 tool call
     const toolResults = []
     for (const tc of toolCalls) {
+      // ── read_skill: progressive disclosure step 2 ────────────────────────
+      if (tc.name === 'read_skill') {
+        const skillName = tc.input?.skill_name
+        const skill = enabledSkills.find(s => s.name === skillName)
+        const resultContent = skill
+          ? skill.content
+          : `Skill "${skillName}" not found. Available: ${enabledSkills.map(s => s.name).join(', ')}`
+        toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: resultContent })
+        continue
+      }
+
+      // ── subAgent tool ─────────────────────────────────────────────────────
       const entry = subAgentTools.find(e => e.tool.name === tc.name)
       if (!entry) {
         toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: 'Tool not found' })
@@ -59,17 +126,17 @@ export async function runChat(model, messages, subAgentTools, subAgentSessions, 
 /**
  * 调用 LLM（Anthropic 或 OpenAI-compatible），流式输出文本，返回完整 response
  */
-async function callLLM(model, messages, tools, onEvent) {
+async function callLLM(model, messages, tools, onEvent, systemPrompt) {
   if (model.provider === 'anthropic') {
-    return callAnthropic(model, messages, tools, onEvent)
+    return callAnthropic(model, messages, tools, onEvent, systemPrompt)
   } else {
-    return callOpenAICompatible(model, messages, tools, onEvent)
+    return callOpenAICompatible(model, messages, tools, onEvent, systemPrompt)
   }
 }
 
 // ─── Anthropic ──────────────────────────────────────────────────────────────
 
-async function callAnthropic(model, messages, tools, onEvent) {
+async function callAnthropic(model, messages, tools, onEvent, systemPrompt) {
   const body = {
     model: model.model || 'claude-sonnet-4-6',
     max_tokens: 4096,
@@ -78,6 +145,9 @@ async function callAnthropic(model, messages, tools, onEvent) {
       role: m.role,
       content: Array.isArray(m.content) ? m.content : [{ type: 'text', text: m.content }],
     })),
+  }
+  if (systemPrompt) {
+    body.system = systemPrompt
   }
   if (tools.length > 0) {
     body.tools = tools.map(t => ({
@@ -164,7 +234,7 @@ async function parseAnthropicStream(stream, onEvent) {
 
 // ─── OpenAI-compatible ───────────────────────────────────────────────────────
 
-async function callOpenAICompatible(model, messages, tools, onEvent) {
+async function callOpenAICompatible(model, messages, tools, onEvent, systemPrompt) {
   const baseURL = model.baseURL || 'https://api.openai.com/v1'
 
   // 转换消息格式（tool results → role: tool）
@@ -173,7 +243,9 @@ async function callOpenAICompatible(model, messages, tools, onEvent) {
   const body = {
     model: model.model || 'gpt-4',
     stream: true,
-    messages: oaiMessages,
+    messages: systemPrompt
+      ? [{ role: 'system', content: systemPrompt }, ...oaiMessages]
+      : oaiMessages,
   }
   if (tools.length > 0) {
     body.tools = tools.map(t => ({

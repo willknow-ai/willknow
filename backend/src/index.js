@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import chatRouter from './routes/chat.js'
 import settingsRouter from './routes/settings.js'
+import skillsRouter from './routes/skills.js'
 import { readConfig } from './config/index.js'
 import { channelManager } from './services/channels/manager.js'
 
@@ -17,6 +18,7 @@ app.use(express.json())
 
 app.use('/api', chatRouter)
 app.use('/api', settingsRouter)
+app.use('/api', skillsRouter)
 
 // 通道状态查询
 app.get('/api/channels/status', (req, res) => {

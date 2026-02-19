@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import ModelsPanel from '../components/settings/ModelsPanel'
 import SubAgentsPanel from '../components/settings/SubAgentsPanel'
 import ChannelsPanel from '../components/settings/ChannelsPanel'
-import ComingSoonPanel from '../components/settings/ComingSoonPanel'
+import SkillsPanel from '../components/settings/SkillsPanel'
 import type { AppConfig } from '../types/config'
 
 const { Header, Content } = Layout
@@ -95,10 +95,7 @@ export default function Settings() {
                 style={{ height: 340 }}
                 styles={{ body: { height: 'calc(100% - 38px)', overflowY: 'auto' } }}
               >
-                <ComingSoonPanel
-                  title="技能"
-                  description="从技能市场安装能力扩展，如发邮件、搜索、文件操作等"
-                />
+                <SkillsPanel skills={config.skills} onChange={update('skills')} />
               </Card>
             </Col>
 

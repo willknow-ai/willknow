@@ -17,10 +17,16 @@ export interface ChannelConfig {
 }
 
 export interface SkillConfig {
-  id: string
-  name: string
-  version: string
+  id: string           // "resend/resend-skills/send-email"
+  name: string         // skill name from SKILL.md frontmatter
+  description: string  // from SKILL.md frontmatter
+  version?: string     // from metadata.version
+  source: string       // "owner/repo"
+  skillsShUrl: string  // "https://skills.sh/resend/resend-skills/send-email"
+  content: string      // full SKILL.md content (loaded on activation via read_skill)
+  hasScripts: boolean  // whether skill has scripts/ directory
   enabled: boolean
+  installedAt: number
 }
 
 export interface SubAgentAuth {

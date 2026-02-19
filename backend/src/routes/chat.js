@@ -47,7 +47,7 @@ router.post('/chat', async (req, res) => {
 
     await runChat(model, messages, subAgentTools, subAgentSessions, (type, data) => {
       send(type, data)
-    })
+    }, config.skills || [])
 
     send('done', {})
   } catch (err) {
