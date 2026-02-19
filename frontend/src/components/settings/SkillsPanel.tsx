@@ -37,7 +37,9 @@ export default function SkillsPanel({ skills, onChange }: Props) {
     try {
       const res = await fetch(`/api/skills/search?q=${encodeURIComponent(query.trim())}`)
       const data = await res.json()
-      if (Array.isArray(data)) setResults(data)
+      // skills.sh API returns { skills: [...], count, query, duration_ms }
+      if (Array.isArray(data.skills)) setResults(data.skills)
+      else if (Array.isArray(data)) setResults(data)
       else throw new Error(data.error || '搜索失败')
     } catch (e) {
       message.error(`搜索失败: ${(e as Error).message}`)
