@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Layout, Input, Button, Typography, Space, Tooltip, Empty,
-  Collapse, Tag, Spin
+  Collapse, Tag, Spin, Alert
 } from 'antd'
 import {
   SendOutlined, SettingOutlined, PlusOutlined,
@@ -121,10 +121,19 @@ export default function Chat() {
   const [currentId, setCurrentId] = useState<string | null>(() => loadConversations()[0]?.id || null)
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [hasModels, setHasModels] = useState<boolean | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const current = conversations.find(c => c.id === currentId) || null
+
+  // 检查是否已配置模型
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(data => setHasModels((data.models?.length ?? 0) > 0))
+      .catch(() => setHasModels(true)) // 请求失败时不阻止使用
+  }, [])
 
   useEffect(() => {
     saveConversations(conversations)
@@ -335,13 +344,29 @@ export default function Chat() {
         </Header>
 
         <Content style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#f7f8fa' }}>
+          {/* 未配置模型提醒 */}
+          {hasModels === false && (
+            <Alert
+              type="warning"
+              showIcon
+              message="尚未配置模型"
+              description="请先前往设置页面添加并配置一个 AI 模型，才能开始对话。"
+              action={
+                <Button size="small" type="primary" onClick={() => navigate('/settings')}>
+                  去配置
+                </Button>
+              }
+              style={{ margin: '12px 10%', borderRadius: 8 }}
+            />
+          )}
+
           {/* 消息区 */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '24px 10%' }}>
             {!current || current.messages.length === 0 ? (
               <Empty
                 image={<RobotOutlined style={{ fontSize: 64, color: '#d9d9d9' }} />}
-                description={<Text type="secondary">开始一段新的对话</Text>}
-                style={{ marginTop: 80 }}
+                description={<Text type="secondary">{hasModels === false ? '配置模型后即可开始对话' : '开始一段新的对话'}</Text>}
+                style={{ marginTop: hasModels === false ? 40 : 80 }}
               />
             ) : (
               current.messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)
@@ -363,17 +388,17 @@ export default function Chat() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+                placeholder={hasModels === false ? '请先配置模型...' : '输入消息，Enter 发送，Shift+Enter 换行'}
                 autoSize={{ minRows: 1, maxRows: 5 }}
                 style={{ flex: 1, resize: 'none' }}
-                disabled={streaming}
+                disabled={streaming || hasModels === false}
               />
               <Button
                 type="primary"
                 icon={<SendOutlined />}
                 onClick={send}
                 loading={streaming}
-                disabled={!input.trim()}
+                disabled={!input.trim() || hasModels === false}
                 style={{ height: 'auto', padding: '6px 16px' }}
               >
                 发送

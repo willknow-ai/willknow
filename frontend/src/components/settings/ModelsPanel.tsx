@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import {
-  Form, Input, Select, Button, List, Tag, Popconfirm, Modal, Typography, Space, Tooltip
+  Form, Input, Select, Button, List, Tag, Popconfirm, Modal, Typography, Space, Tooltip, Alert
 } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, StarOutlined, StarFilled } from '@ant-design/icons'
+import {
+  PlusOutlined, EditOutlined, DeleteOutlined, StarOutlined, StarFilled,
+  CheckCircleOutlined, LoadingOutlined
+} from '@ant-design/icons'
 import { v4 as uuidv4 } from 'uuid'
 import type { ModelConfig } from '../../types/config'
 
@@ -24,17 +27,27 @@ interface Props {
   onChange: (models: ModelConfig[]) => void
 }
 
+type ProbeStatus = 'idle' | 'probing' | 'ok' | 'error'
+
 export default function ModelsPanel({ models, onChange }: Props) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<ModelConfig | null>(null)
   const [form] = Form.useForm()
   const [selectedPreset, setSelectedPreset] = useState<string>('deepseek')
+  const [probeStatus, setProbeStatus] = useState<ProbeStatus>('idle')
+  const [probeError, setProbeError] = useState<string>('')
+
+  const resetProbe = () => {
+    setProbeStatus('idle')
+    setProbeError('')
+  }
 
   const openAdd = () => {
     setEditing(null)
     form.resetFields()
     form.setFieldsValue({ provider: 'openai_compatible', preset: 'deepseek', ...PROVIDER_PRESETS['deepseek'] })
     setSelectedPreset('deepseek')
+    resetProbe()
     setOpen(true)
   }
 
@@ -43,6 +56,7 @@ export default function ModelsPanel({ models, onChange }: Props) {
     const preset = Object.entries(PROVIDER_PRESETS).find(([, p]) => p.baseURL === m.baseURL)?.[0] || 'custom'
     setSelectedPreset(preset)
     form.setFieldsValue({ ...m, preset })
+    resetProbe()
     setOpen(true)
   }
 
@@ -54,11 +68,44 @@ export default function ModelsPanel({ models, onChange }: Props) {
       baseURL: p.baseURL,
       model: p.defaultModel,
     })
+    resetProbe()
   }
 
-  const onSave = () => {
-    form.validateFields().then(values => {
-      const { preset, ...rest } = values
+  const onSave = async () => {
+    let values: Record<string, string>
+    try {
+      values = await form.validateFields()
+    } catch {
+      return
+    }
+
+    const { preset: _preset, ...rest } = values
+
+    // 测试连通性
+    setProbeStatus('probing')
+    setProbeError('')
+    try {
+      const r = await fetch('/api/models/probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rest),
+      })
+      const data = await r.json()
+      if (!data.ok) {
+        setProbeStatus('error')
+        setProbeError(data.error || '连接失败')
+        return
+      }
+    } catch (err) {
+      setProbeStatus('error')
+      setProbeError((err as Error).message)
+      return
+    }
+
+    setProbeStatus('ok')
+
+    // 短暂显示成功后保存关闭
+    setTimeout(() => {
       if (editing) {
         onChange(models.map(m => m.id === editing.id ? { ...m, ...rest } : m))
       } else {
@@ -66,12 +113,12 @@ export default function ModelsPanel({ models, onChange }: Props) {
         onChange([...models, newModel])
       }
       setOpen(false)
-    })
+      resetProbe()
+    }, 600)
   }
 
   const onDelete = (id: string) => {
     const next = models.filter(m => m.id !== id)
-    // 如果删的是默认，把第一个设为默认
     if (next.length > 0 && !next.find(m => m.isDefault)) next[0].isDefault = true
     onChange(next)
   }
@@ -79,6 +126,8 @@ export default function ModelsPanel({ models, onChange }: Props) {
   const setDefault = (id: string) => {
     onChange(models.map(m => ({ ...m, isDefault: m.id === id })))
   }
+
+  const okText = probeStatus === 'probing' ? '测试中...' : probeStatus === 'ok' ? '已连接 ✓' : '测试并保存'
 
   return (
     <div>
@@ -116,10 +165,18 @@ export default function ModelsPanel({ models, onChange }: Props) {
         添加模型
       </Button>
 
-      <Modal title={editing ? '编辑模型' : '添加模型'} open={open} onOk={onSave} onCancel={() => setOpen(false)} width={480}>
+      <Modal
+        title={editing ? '编辑模型' : '添加模型'}
+        open={open}
+        onOk={onSave}
+        onCancel={() => { setOpen(false); resetProbe() }}
+        okText={okText}
+        okButtonProps={{ loading: probeStatus === 'probing', disabled: probeStatus === 'ok' }}
+        width={480}
+      >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="name" label="显示名称" rules={[{ required: true }]}>
-            <Input placeholder="如：DeepSeek V3" />
+            <Input placeholder="如：DeepSeek V3" onChange={resetProbe} />
           </Form.Item>
           <Form.Item name="preset" label="服务商">
             <Select onChange={onPresetChange}>
@@ -131,15 +188,26 @@ export default function ModelsPanel({ models, onChange }: Props) {
           <Form.Item name="provider" hidden><Input /></Form.Item>
           {selectedPreset !== 'anthropic' && (
             <Form.Item name="baseURL" label="API Base URL" rules={[{ required: true }]}>
-              <Input placeholder="https://api.deepseek.com/v1" />
+              <Input placeholder="https://api.deepseek.com/v1" onChange={resetProbe} />
             </Form.Item>
           )}
           <Form.Item name="model" label="模型名称" rules={[{ required: true }]}>
-            <Input placeholder="如：deepseek-chat" />
+            <Input placeholder="如：deepseek-chat" onChange={resetProbe} />
           </Form.Item>
-          <Form.Item name="apiKey" label="API Key" rules={[{ required: true }]}>
-            <Input.Password placeholder="sk-..." />
+          <Form.Item name="apiKey" label="API Key" rules={[{ required: true }]} style={{ marginBottom: probeStatus === 'idle' ? undefined : 8 }}>
+            <Input.Password placeholder="sk-..." onChange={resetProbe} />
           </Form.Item>
+
+          {/* 连通性测试结果 */}
+          {probeStatus === 'probing' && (
+            <Alert message={<Space size={6}><LoadingOutlined />正在测试连通性...</Space>} type="info" showIcon={false} />
+          )}
+          {probeStatus === 'ok' && (
+            <Alert message={<Space size={6}><CheckCircleOutlined />连接成功</Space>} type="success" showIcon={false} />
+          )}
+          {probeStatus === 'error' && (
+            <Alert message="连接失败" description={probeError} type="error" showIcon />
+          )}
         </Form>
       </Modal>
     </div>
