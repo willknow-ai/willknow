@@ -1,4 +1,7 @@
 import fetch from 'node-fetch'
+import AdmZip from 'adm-zip'
+
+const CLAWHUB_DOWNLOAD_BASE = 'https://wry-manatee-359.convex.site/api/v1'
 
 /**
  * Parse YAML frontmatter from SKILL.md content.
@@ -46,21 +49,31 @@ function parseFrontmatter(content) {
   return { frontmatter, body }
 }
 
+// ─── skills.sh ───────────────────────────────────────────────────────────────
+
 /**
  * Proxy search to skills.sh API
  */
-export async function searchSkills(q) {
+export async function searchSkillsSh(q) {
   const res = await fetch(`https://skills.sh/api/search?q=${encodeURIComponent(q)}`, {
     signal: AbortSignal.timeout(8000),
   })
   if (!res.ok) throw new Error(`skills.sh 搜索失败: ${res.status}`)
-  return res.json()
+  const data = await res.json()
+  // Returns { skills: [...], count, query, duration_ms }
+  return (data.skills ?? data ?? []).map(r => ({
+    id: r.id,            // "owner/repo/skillId"
+    name: r.name || r.skillId,
+    installs: r.installs,
+    source: r.source,    // "owner/repo"
+    registry: 'skills.sh',
+  }))
 }
 
 /**
  * Fetch and parse a skill from GitHub given its skills.sh id ("owner/repo/skillId")
  */
-export async function fetchSkill(id) {
+export async function fetchSkillSh(id) {
   const lastSlash = id.lastIndexOf('/')
   if (lastSlash === -1) throw new Error('无效的 skill id，格式应为 owner/repo/skillId')
 
@@ -103,11 +116,104 @@ export async function fetchSkill(id) {
     name: frontmatter.name || skillId,
     description: frontmatter.description || '',
     version: frontmatter.metadata?.version,
+    registry: 'skills.sh',
+    registryUrl: `https://skills.sh/${id}`,
     source,
-    skillsShUrl: `https://skills.sh/${id}`,
     content,
     hasScripts,
     enabled: true,
     installedAt: Date.now(),
   }
+}
+
+// ─── clawhub.ai ──────────────────────────────────────────────────────────────
+
+const SCRIPT_EXTENSIONS = /\.(py|sh|js|ts|rb|go|rs|pl|php|bash|zsh|fish|ps1|bat|cmd)$/i
+
+/**
+ * Proxy search to clawhub.ai API
+ */
+export async function searchClawhub(q) {
+  const res = await fetch(`https://clawhub.ai/api/search?q=${encodeURIComponent(q)}`, {
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!res.ok) throw new Error(`clawhub.ai 搜索失败: ${res.status}`)
+  const data = await res.json()
+  // Returns { results: [{ slug, displayName, summary, version, score, updatedAt }] }
+  return (data.results ?? []).map(r => ({
+    id: `clawhub:${r.slug}`,
+    name: r.displayName || r.slug,
+    summary: r.summary,    // clawhub returns description in search results
+    source: r.slug,
+    registry: 'clawhub',
+  }))
+}
+
+/**
+ * Fetch and install a skill from clawhub.ai by slug.
+ * Downloads the zip, extracts SKILL.md, checks for scripts.
+ */
+export async function fetchClawhubSkill(slug) {
+  // 1. Get skill detail to retrieve version and owner handle
+  const detailRes = await fetch(`https://clawhub.ai/api/skill?slug=${encodeURIComponent(slug)}`, {
+    signal: AbortSignal.timeout(8000),
+  })
+  if (!detailRes.ok) throw new Error(`获取技能详情失败: ${detailRes.status}`)
+  const detail = await detailRes.json()
+
+  const version = detail.latestVersion?.version
+  if (!version) throw new Error(`无法获取技能版本信息: ${slug}`)
+  const ownerHandle = detail.owner?.handle || 'unknown'
+
+  // 2. Download zip from Convex storage
+  const zipUrl = `${CLAWHUB_DOWNLOAD_BASE}/download?slug=${encodeURIComponent(slug)}&version=${encodeURIComponent(version)}`
+  const zipRes = await fetch(zipUrl, { signal: AbortSignal.timeout(15000) })
+  if (!zipRes.ok) throw new Error(`下载技能包失败: ${zipRes.status}`)
+
+  const zipBuffer = Buffer.from(await zipRes.arrayBuffer())
+  const zip = new AdmZip(zipBuffer)
+
+  // 3. Extract SKILL.md content
+  const skillMdEntry = zip.getEntry('SKILL.md')
+  if (!skillMdEntry) throw new Error(`技能包中未找到 SKILL.md 文件`)
+  const content = skillMdEntry.getData().toString('utf8')
+
+  // 4. Check for script files (anything other than SKILL.md, README.md, _meta.json)
+  const entries = zip.getEntries()
+  const hasScripts = entries.some(e =>
+    !e.isDirectory &&
+    !['SKILL.md', 'README.md', '_meta.json'].includes(e.entryName) &&
+    SCRIPT_EXTENSIONS.test(e.entryName)
+  )
+
+  const { frontmatter } = parseFrontmatter(content)
+
+  return {
+    id: `clawhub:${slug}`,
+    name: frontmatter.name || slug,
+    description: detail.skill?.summary || frontmatter.description || '',
+    version,
+    registry: 'clawhub',
+    registryUrl: `https://clawhub.ai/${ownerHandle}/${slug}`,
+    source: `${ownerHandle}/${slug}`,
+    content,
+    hasScripts,
+    enabled: true,
+    installedAt: Date.now(),
+  }
+}
+
+// ─── Unified exports ──────────────────────────────────────────────────────────
+
+export async function searchSkills(q, registry = 'skills.sh') {
+  if (registry === 'clawhub') return searchClawhub(q)
+  return searchSkillsSh(q)
+}
+
+export async function fetchSkill(id, registry = 'skills.sh') {
+  if (registry === 'clawhub') {
+    const slug = id.startsWith('clawhub:') ? id.slice(8) : id
+    return fetchClawhubSkill(slug)
+  }
+  return fetchSkillSh(id)
 }

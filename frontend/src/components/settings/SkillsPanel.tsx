@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Button, List, Tag, Popconfirm, Input, Typography,
-  Space, Tabs, Spin, Switch, Tooltip, message,
+  Space, Tabs, Spin, Switch, Tooltip, message, Segmented,
 } from 'antd'
 import {
   SearchOutlined, DeleteOutlined, LinkOutlined,
@@ -11,12 +11,15 @@ import type { SkillConfig } from '../../types/config'
 
 const { Text } = Typography
 
+type Registry = 'skills.sh' | 'clawhub'
+
 interface SearchResult {
   id: string
-  skillId: string
   name: string
-  installs: number
+  installs?: number    // skills.sh only
+  summary?: string     // clawhub only
   source: string
+  registry: Registry
 }
 
 interface Props {
@@ -24,7 +27,18 @@ interface Props {
   onChange: (skills: SkillConfig[]) => void
 }
 
+const REGISTRY_OPTIONS: { label: string; value: Registry }[] = [
+  { label: 'skills.sh', value: 'skills.sh' },
+  { label: 'clawhub.ai', value: 'clawhub' },
+]
+
+const REGISTRY_LABEL: Record<Registry, string> = {
+  'skills.sh': 'skills.sh',
+  'clawhub': 'clawhub.ai',
+}
+
 export default function SkillsPanel({ skills, onChange }: Props) {
+  const [registry, setRegistry] = useState<Registry>('skills.sh')
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [results, setResults] = useState<SearchResult[]>([])
@@ -35,11 +49,11 @@ export default function SkillsPanel({ skills, onChange }: Props) {
     setSearching(true)
     setResults([])
     try {
-      const res = await fetch(`/api/skills/search?q=${encodeURIComponent(query.trim())}`)
+      const res = await fetch(
+        `/api/skills/search?q=${encodeURIComponent(query.trim())}&registry=${encodeURIComponent(registry)}`
+      )
       const data = await res.json()
-      // skills.sh API returns { skills: [...], count, query, duration_ms }
-      if (Array.isArray(data.skills)) setResults(data.skills)
-      else if (Array.isArray(data)) setResults(data)
+      if (Array.isArray(data)) setResults(data)
       else throw new Error(data.error || '搜索失败')
     } catch (e) {
       message.error(`搜索失败: ${(e as Error).message}`)
@@ -58,7 +72,7 @@ export default function SkillsPanel({ skills, onChange }: Props) {
       const res = await fetch('/api/skills/fetch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: result.id }),
+        body: JSON.stringify({ id: result.id, registry: result.registry }),
       })
       const data = await res.json()
       if (!data.ok) throw new Error(data.error)
@@ -68,7 +82,7 @@ export default function SkillsPanel({ skills, onChange }: Props) {
 
       if (skill.hasScripts) {
         message.warning({
-          content: `「${skill.name}」已安装。此技能包含 scripts/ 目录，willknow 暂不支持执行技能脚本，相关功能可能受限。`,
+          content: `「${skill.name}」已安装。此技能包含脚本文件，willknow 暂不支持执行技能脚本，相关功能可能受限。`,
           duration: 6,
         })
       } else {
@@ -103,11 +117,11 @@ export default function SkillsPanel({ skills, onChange }: Props) {
               checked={skill.enabled}
               onChange={enabled => doToggle(skill.id, enabled)}
             />,
-            <Tooltip title="在 skills.sh 查看" key="link">
+            <Tooltip title={`在 ${REGISTRY_LABEL[skill.registry] ?? skill.registry} 查看`} key="link">
               <Button
                 type="text" size="small"
                 icon={<LinkOutlined />}
-                onClick={() => window.open(skill.skillsShUrl, '_blank')}
+                onClick={() => window.open(skill.registryUrl, '_blank')}
               />
             </Tooltip>,
             <Popconfirm title="确认卸载？" onConfirm={() => doDelete(skill.id)} key="del">
@@ -120,8 +134,9 @@ export default function SkillsPanel({ skills, onChange }: Props) {
               <Space size={4}>
                 <Text style={{ fontSize: 13 }}>{skill.name}</Text>
                 {skill.version && <Tag style={{ fontSize: 11 }}>v{skill.version}</Tag>}
+                <Tag style={{ fontSize: 11 }} color="blue">{REGISTRY_LABEL[skill.registry] ?? skill.registry}</Tag>
                 {skill.hasScripts && (
-                  <Tooltip title="此技能包含 scripts/ 目录，willknow 暂不支持执行技能脚本">
+                  <Tooltip title="此技能包含脚本文件，willknow 暂不支持执行技能脚本">
                     <WarningOutlined style={{ color: '#fa8c16', fontSize: 12 }} />
                   </Tooltip>
                 )}
@@ -137,9 +152,17 @@ export default function SkillsPanel({ skills, onChange }: Props) {
 
   const searchTab = (
     <div>
+      <Segmented
+        size="small"
+        options={REGISTRY_OPTIONS}
+        value={registry}
+        onChange={v => { setRegistry(v as Registry); setResults([]) }}
+        style={{ marginBottom: 8 }}
+      />
+
       <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
         <Input
-          placeholder="搜索技能，如 send-email..."
+          placeholder={registry === 'clawhub' ? '搜索技能，如 send-email...' : '搜索技能，如 send-email...'}
           value={query}
           onChange={e => setQuery(e.target.value)}
           onPressEnter={doSearch}
@@ -155,9 +178,12 @@ export default function SkillsPanel({ skills, onChange }: Props) {
         <List
           dataSource={results}
           size="small"
-          locale={{ emptyText: query && !searching ? '无结果' : '输入关键词搜索 skills.sh' }}
+          locale={{ emptyText: query && !searching ? '无结果' : `输入关键词搜索 ${REGISTRY_LABEL[registry]}` }}
           renderItem={r => {
             const installed = skills.some(s => s.id === r.id)
+            const href = r.registry === 'clawhub'
+              ? `https://clawhub.ai/skills/${r.source}`
+              : `https://skills.sh/${r.id}`
             return (
               <List.Item
                 actions={[
@@ -179,20 +205,25 @@ export default function SkillsPanel({ skills, onChange }: Props) {
                 <List.Item.Meta
                   title={
                     <Space size={6}>
-                      <a
-                        href={`https://skills.sh/${r.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ fontSize: 13 }}
-                      >
+                      <a href={href} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
                         {r.name}
                       </a>
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        {r.installs.toLocaleString()} installs
-                      </Text>
+                      {r.registry === 'skills.sh' && r.installs != null && (
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {r.installs.toLocaleString()} installs
+                        </Text>
+                      )}
                     </Space>
                   }
-                  description={<Text type="secondary" style={{ fontSize: 11 }}>{r.source}</Text>}
+                  description={
+                    r.registry === 'clawhub' && r.summary ? (
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        {r.summary.length > 80 ? r.summary.slice(0, 80) + '…' : r.summary}
+                      </Text>
+                    ) : (
+                      <Text type="secondary" style={{ fontSize: 11 }}>{r.source}</Text>
+                    )
+                  }
                 />
               </List.Item>
             )
