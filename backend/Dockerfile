@@ -1,5 +1,8 @@
 FROM node:20-alpine
 
+# 安装 Docker CLI（DooD：通过挂载宿主机 socket 调用宿主机 Docker daemon）
+RUN apk add --no-cache docker-cli
+
 WORKDIR /app
 
 COPY package*.json ./
