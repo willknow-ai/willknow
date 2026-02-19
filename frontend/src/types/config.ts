@@ -26,6 +26,7 @@ export interface SkillConfig {
   source: string                  // "owner/repo" or "handle/slug"
   content: string                 // full SKILL.md content (loaded on activation via read_skill)
   hasScripts: boolean             // whether skill has scripts/ directory
+  scripts?: Record<string, string> // relative path → file content (for Docker execution)
   enabled: boolean
   installedAt: number
 }

@@ -95,8 +95,9 @@ export async function fetchSkillSh(id) {
 
   const { frontmatter } = parseFrontmatter(content)
 
-  // Check for scripts/ directory via GitHub contents API
+  // Check for scripts/ directory via GitHub contents API, and download script/dep files
   let hasScripts = false
+  let scripts = {}
   try {
     const apiUrl = `https://api.github.com/repos/${source}/contents/${skillId}`
     const apiRes = await fetch(apiUrl, {
@@ -106,9 +107,43 @@ export async function fetchSkillSh(id) {
     if (apiRes.ok) {
       const files = await apiRes.json()
       hasScripts = Array.isArray(files) && files.some(f => f.name === 'scripts' && f.type === 'dir')
+
+      // 下载根目录中的依赖文件（requirements.txt / package.json / Gemfile）
+      if (Array.isArray(files)) {
+        const DEP_FILES = ['requirements.txt', 'package.json', 'Gemfile']
+        await Promise.all(
+          files.filter(f => f.type === 'file' && DEP_FILES.includes(f.name) && f.download_url).map(async f => {
+            const r = await fetch(f.download_url, { signal: AbortSignal.timeout(10000) })
+            if (r.ok) scripts[f.name] = await r.text()
+          })
+        )
+      }
     }
   } catch {
     // Not critical — default to false
+  }
+
+  // 下载 scripts/ 目录中的所有文件
+  if (hasScripts) {
+    try {
+      const sRes = await fetch(
+        `https://api.github.com/repos/${source}/contents/${skillId}/scripts`,
+        { headers: { 'Accept': 'application/vnd.github.v3+json' }, signal: AbortSignal.timeout(8000) }
+      )
+      if (sRes.ok) {
+        const sFiles = await sRes.json()
+        if (Array.isArray(sFiles)) {
+          await Promise.all(
+            sFiles.filter(f => f.type === 'file' && f.download_url).map(async f => {
+              const r = await fetch(f.download_url, { signal: AbortSignal.timeout(10000) })
+              if (r.ok) scripts[`scripts/${f.name}`] = await r.text()
+            })
+          )
+        }
+      }
+    } catch {
+      // 下载失败不阻止安装
+    }
   }
 
   return {
@@ -121,6 +156,7 @@ export async function fetchSkillSh(id) {
     source,
     content,
     hasScripts,
+    scripts,
     enabled: true,
     installedAt: Date.now(),
   }
@@ -178,13 +214,26 @@ export async function fetchClawhubSkill(slug) {
   if (!skillMdEntry) throw new Error(`技能包中未找到 SKILL.md 文件`)
   const content = skillMdEntry.getData().toString('utf8')
 
-  // 4. Check for script files (anything other than SKILL.md, README.md, _meta.json)
+  // 4. Extract script and dependency files from ZIP
   const entries = zip.getEntries()
+  const META_FILES = new Set(['SKILL.md', 'README.md', '_meta.json'])
+  const DEP_FILES = new Set(['requirements.txt', 'package.json', 'Gemfile'])
+
   const hasScripts = entries.some(e =>
     !e.isDirectory &&
-    !['SKILL.md', 'README.md', '_meta.json'].includes(e.entryName) &&
+    !META_FILES.has(e.entryName) &&
     SCRIPT_EXTENSIONS.test(e.entryName)
   )
+
+  const scripts = {}
+  if (hasScripts) {
+    entries.forEach(e => {
+      if (e.isDirectory || META_FILES.has(e.entryName)) return
+      if (SCRIPT_EXTENSIONS.test(e.entryName) || DEP_FILES.has(e.entryName)) {
+        scripts[e.entryName] = e.getData().toString('utf8')
+      }
+    })
+  }
 
   const { frontmatter } = parseFrontmatter(content)
 
@@ -198,6 +247,7 @@ export async function fetchClawhubSkill(slug) {
     source: `${ownerHandle}/${slug}`,
     content,
     hasScripts,
+    scripts,
     enabled: true,
     installedAt: Date.now(),
   }

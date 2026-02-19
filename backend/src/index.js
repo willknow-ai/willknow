@@ -7,6 +7,7 @@ import settingsRouter from './routes/settings.js'
 import skillsRouter from './routes/skills.js'
 import { readConfig } from './config/index.js'
 import { channelManager } from './services/channels/manager.js'
+import { initDocker } from './services/executor.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -33,5 +34,7 @@ app.listen(PORT, async () => {
     console.log('[ChannelManager] 初始化通道...')
     await channelManager.sync(config)
   }
+  // 检测 Docker 可用性（供 skill 脚本执行使用）
+  await initDocker()
 })
 

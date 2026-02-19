@@ -1,5 +1,6 @@
 import fetch from 'node-fetch'
 import { callSubAgent } from './subagent.js'
+import { isDockerAvailable, runScript } from './executor.js'
 
 const MAX_TURNS = 10
 
@@ -18,6 +19,39 @@ const READ_SKILL_TOOL = {
     },
     required: ['skill_name'],
   },
+}
+
+const RUN_SKILL_SCRIPT_TOOL = {
+  name: 'run_skill_script',
+  description: 'Execute a script from an installed skill inside a Docker container. ' +
+    'First use read_skill to understand which script to run and what arguments it expects. ' +
+    'Dependencies (requirements.txt, package.json, etc.) are installed automatically.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      skill_name: {
+        type: 'string',
+        description: 'Exact skill name from <available_skills>',
+      },
+      script_path: {
+        type: 'string',
+        description: "Relative path to the script, e.g. 'scripts/analyze.py'. No '..' or leading '/'.",
+      },
+      args: {
+        type: 'string',
+        description: "CLI args as one string, e.g. 'file.pdf --pages 2'. Empty string if none.",
+      },
+    },
+    required: ['skill_name', 'script_path', 'args'],
+  },
+}
+
+function formatScriptResult({ stdout, stderr, exitCode }) {
+  const parts = []
+  if (stdout) parts.push(`[stdout]\n${stdout}`)
+  if (stderr) parts.push(`[stderr]\n${stderr}`)
+  parts.push(`[exit code] ${exitCode}`)
+  return parts.join('\n\n')
 }
 
 function xmlEscape(str) {
@@ -62,10 +96,14 @@ export async function runChat(model, messages, subAgentTools, subAgentSessions, 
   const history = [...messages]
   const enabledSkills = skills.filter(s => s.enabled)
 
-  // Tools: subAgent tools + read_skill (if any skills enabled)
+  // Tools: subAgent tools + read_skill + run_skill_script (if skills with scripts exist)
+  const skillsWithScripts = enabledSkills.filter(
+    s => s.hasScripts && s.scripts && Object.keys(s.scripts).length > 0
+  )
   const tools = [
     ...subAgentTools.map(e => e.tool),
-    ...(enabledSkills.length > 0 ? [READ_SKILL_TOOL] : []),
+    ...(enabledSkills.length > 0     ? [READ_SKILL_TOOL]       : []),
+    ...(skillsWithScripts.length > 0 ? [RUN_SKILL_SCRIPT_TOOL] : []),
   ]
 
   // System prompt: inject skill metadata only (progressive disclosure step 1)
@@ -92,6 +130,42 @@ export async function runChat(model, messages, subAgentTools, subAgentSessions, 
           ? skill.content
           : `Skill "${skillName}" not found. Available: ${enabledSkills.map(s => s.name).join(', ')}`
         toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: resultContent })
+        continue
+      }
+
+      // ── run_skill_script: Docker 脚本执行 ────────────────────────────────
+      if (tc.name === 'run_skill_script') {
+        const { skill_name, script_path, args } = tc.input ?? {}
+        const skill = enabledSkills.find(s => s.name === skill_name)
+        if (!skill) {
+          toolResults.push({
+            type: 'tool_result', tool_use_id: tc.id,
+            content: `Skill "${skill_name}" not found. Available: ${enabledSkills.map(s => s.name).join(', ')}`,
+          })
+          continue
+        }
+        if (!isDockerAvailable()) {
+          toolResults.push({
+            type: 'tool_result', tool_use_id: tc.id,
+            content: 'Docker is not available on this system. Cannot execute skill scripts.',
+          })
+          continue
+        }
+        onEvent('tool_call', {
+          tool: tc.name,
+          agentName: `执行脚本: ${skill_name}`,
+          input: `${script_path} ${args ?? ''}`.trim(),
+        })
+        try {
+          const result = await runScript(skill, script_path, args ?? '')
+          const content = formatScriptResult(result)
+          onEvent('tool_result', { tool: tc.name, content })
+          toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content })
+        } catch (err) {
+          const errMsg = `脚本执行失败: ${err.message}`
+          onEvent('tool_result', { tool: tc.name, content: errMsg })
+          toolResults.push({ type: 'tool_result', tool_use_id: tc.id, content: errMsg })
+        }
         continue
       }
 

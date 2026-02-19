@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import {
   SearchOutlined, DeleteOutlined, LinkOutlined,
-  WarningOutlined, CheckCircleOutlined,
+  ContainerOutlined, CheckCircleOutlined,
 } from '@ant-design/icons'
 import type { SkillConfig } from '../../types/config'
 
@@ -82,7 +82,7 @@ export default function SkillsPanel({ skills, onChange }: Props) {
 
       if (skill.hasScripts) {
         message.warning({
-          content: `「${skill.name}」已安装。此技能包含脚本文件，willknow 暂不支持执行技能脚本，相关功能可能受限。`,
+          content: `「${skill.name}」已安装。此技能包含脚本，执行时需要 Docker（请确保 Docker 已在本地运行）。`,
           duration: 6,
         })
       } else {
@@ -136,8 +136,8 @@ export default function SkillsPanel({ skills, onChange }: Props) {
                 {skill.version && <Tag style={{ fontSize: 11 }}>v{skill.version}</Tag>}
                 <Tag style={{ fontSize: 11 }} color="blue">{REGISTRY_LABEL[skill.registry] ?? skill.registry}</Tag>
                 {skill.hasScripts && (
-                  <Tooltip title="此技能包含脚本文件，willknow 暂不支持执行技能脚本">
-                    <WarningOutlined style={{ color: '#fa8c16', fontSize: 12 }} />
+                  <Tooltip title="此技能包含脚本，执行时需要 Docker">
+                    <ContainerOutlined style={{ color: '#1677ff', fontSize: 12 }} />
                   </Tooltip>
                 )}
                 {!skill.enabled && <Tag color="default" style={{ fontSize: 11 }}>已禁用</Tag>}
