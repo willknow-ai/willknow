@@ -6,8 +6,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # 持久化配置文件到宿主机 ./data/ 目录
-      - ./data:/app/src/config
+      # 只挂载配置文件，避免覆盖整个 config 目录（index.js 等源码需保留）
+      - ./data/config.json:/app/src/config/config.json
     restart: unless-stopped
 
   frontend:
