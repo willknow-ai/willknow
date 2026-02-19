@@ -1,0 +1,21 @@
+services:
+  backend:
+    image: willknow-backend
+    build:
+      context: ./backend
+    ports:
+      - "3000:3000"
+    volumes:
+      # 持久化配置文件到宿主机 ./data/ 目录
+      - ./data:/app/src/config
+    restart: unless-stopped
+
+  frontend:
+    image: willknow-frontend
+    build:
+      context: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

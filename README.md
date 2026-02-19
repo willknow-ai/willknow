@@ -14,11 +14,16 @@
 
 ```
 willknow/
+├── Makefile                    # 构建 & 启动命令
+├── docker-compose.yml          # 容器编排
+├── data/                       # 持久化配置（Docker 挂载卷）
+│   └── config.json
 ├── backend/                    # Node.js + Express 后端
+│   ├── Dockerfile
 │   └── src/
 │       ├── index.js            # 服务入口
 │       ├── config/
-│       │   └── config.json     # 运行时配置（模型/通道/SubAgents）
+│       │   └── config.json     # 运行时配置（本地开发）
 │       ├── routes/
 │       │   ├── chat.js         # POST /api/chat（SSE 流式）
 │       │   └── settings.js     # GET/PUT /api/settings
@@ -29,6 +34,8 @@ willknow/
 │               ├── manager.js  # 通道生命周期管理
 │               └── qq.js       # QQ 机器人通道
 └── frontend/                   # React + Ant Design + Vite 前端
+    ├── Dockerfile
+    ├── nginx.conf              # 容器内 nginx 配置（SPA + API 代理）
     └── src/
         ├── pages/
         │   ├── Chat.tsx        # 对话页
@@ -42,25 +49,71 @@ willknow/
 
 ## 快速启动
 
+### 方式一：Docker（推荐）
+
+**前置要求：** Docker + Docker Compose
+
+```bash
+# 1. 构建镜像
+make build
+
+# 2. 启动服务
+make up
+```
+
+访问 http://localhost，进入设置页面配置模型后即可开始对话。
+配置自动保存到 `./data/config.json`，容器重启后保留。
+
+```bash
+make down        # 停止服务
+make logs        # 查看实时日志
+make rebuild     # 代码变更后重新构建并启动
+```
+
+### 方式二：本地开发
+
 **前置要求：** Node.js 18+
 
 ```bash
-# 启动后端
-cd backend
-npm install
-npm run dev    # 监听 http://localhost:3000
+# 安装依赖
+make install
 
-# 启动前端（新终端）
-cd frontend
-npm install
-npm run dev    # 监听 http://localhost:5173
+# 同时启动后端和前端
+make dev
 ```
 
-打开浏览器访问 http://localhost:5173，进入设置页面配置模型后即可开始对话。
+| 服务 | 地址 |
+|------|------|
+| 前端 | http://localhost:5173 |
+| 后端 | http://localhost:3000 |
+
+也可以分别启动：
+
+```bash
+make dev-backend    # 仅启动后端（含热重载）
+make dev-frontend   # 仅启动前端
+```
+
+### Makefile 命令速览
+
+| 命令 | 说明 |
+|------|------|
+| `make build` | 构建所有 Docker 镜像 |
+| `make build-backend` | 仅构建后端镜像 |
+| `make build-frontend` | 仅构建前端镜像 |
+| `make up` | 前台启动（Ctrl+C 停止）|
+| `make up-detach` | 后台启动 |
+| `make down` | 停止并移除容器 |
+| `make logs` | 查看实时日志 |
+| `make rebuild` | 重新构建并后台启动 |
+| `make install` | 安装前后端 npm 依赖 |
+| `make dev` | 本地开发模式（同时启动前后端）|
 
 ## 配置说明
 
-所有配置通过界面操作，保存至 `backend/src/config/config.json`。
+所有配置通过界面操作自动保存：
+- **Docker 部署：** 保存至 `./data/config.json`（容器外持久化）
+- **本地开发：** 保存至 `backend/src/config/config.json`
 
 ### 模型配置
 
