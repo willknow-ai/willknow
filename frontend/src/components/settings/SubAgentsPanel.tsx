@@ -156,10 +156,10 @@ export default function SubAgentsPanel({ subAgents, onChange }: Props) {
             </Space.Compact>
           </Form.Item>
           <div style={{ marginBottom: 12, fontSize: 12, color: '#8c8c8c' }}>
-            Docker 部署时宿主机服务请用{' '}
-            <Text code style={{ fontSize: 11 }}>host.docker.internal</Text>
-            {' '}代替{' '}
+            willknow 以 Docker 运行时，宿主机上的 SubAgent 请将{' '}
             <Text code style={{ fontSize: 11 }}>localhost</Text>
+            {' '}改为{' '}
+            <Text code style={{ fontSize: 11 }}>host.docker.internal</Text>
             ，如：<Text code style={{ fontSize: 11 }}>http://host.docker.internal:8888</Text>
           </div>
 
