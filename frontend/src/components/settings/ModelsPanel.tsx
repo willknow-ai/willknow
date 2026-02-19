@@ -109,7 +109,7 @@ export default function ModelsPanel({ models, onChange }: Props) {
       if (editing) {
         onChange(models.map(m => m.id === editing.id ? { ...m, ...rest } : m))
       } else {
-        const newModel: ModelConfig = { id: uuidv4(), isDefault: models.length === 0, ...rest }
+        const newModel = { id: uuidv4(), isDefault: models.length === 0, ...rest } as ModelConfig
         onChange([...models, newModel])
       }
       setOpen(false)
